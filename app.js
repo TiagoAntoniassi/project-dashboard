@@ -18,6 +18,19 @@ const MONTH_NAMES = [
   "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 ];
 
+const COUNTRIES = [
+  { code: "BR", label: "🇧🇷 Brasil" },
+  { code: "AR", label: "🇦🇷 Argentina" },
+  { code: "CL", label: "🇨🇱 Chile" },
+  { code: "CO", label: "🇨🇴 Colômbia" },
+  { code: "MX", label: "🇲🇽 México" },
+  { code: "PY", label: "🇵y Paraguai" },
+  { code: "EC", label: "EC Ecuador" },
+  { code: "UY", label: "UY Uruguai" },
+  { code: "PE", label: "🇵🇪 Peru" },
+  { code: "PC", label: "pc Costa Rica" }
+];
+
 // Calcula o rótulo de exibição em tela de forma segura contra fuso horário
 function getMonthLabel(startDate, idx) {
   if (!startDate) return MONTHS_LABELS[idx];
@@ -27,7 +40,9 @@ function getMonthLabel(startDate, idx) {
   return `${MONTH_NAMES[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
 }
 
-// Formata a data para a planilha exatamente no modelo unpivot desejado (ex: mai-25)
+// Formata a data para a planilha no modelo unpivot desejado (ex: fev-27)
+// O auto-parse incorreto do Excel (mar-26 → 26/03/2026) é neutralizado pelo
+// tipo 's' + formato '@' forçados nas células de mês no exportXLSX
 function formatMonthYear(startDate, idx) {
   if (!startDate) return "";
   const [year, month] = startDate.split("-").map(Number);
@@ -40,7 +55,7 @@ const emptyMonthValues = () => Array(12).fill("");
 
 const initialState = {
   projectName: "",
-  skus: [{ id: Date.now(), value: "" }],
+  skus: [{ id: Date.now(), value: "", countries: [] }],
   productionStartDate: "",
   productionMonths: emptyMonthValues(),
   salesStartDate: "",
@@ -61,6 +76,7 @@ function ProjectDataCollector() {
   const [allProjects, setAllProjects] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState(null);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -74,13 +90,128 @@ function ProjectDataCollector() {
   };
 
   const addSku = () =>
-    setForm(f => ({ ...f, skus: [...f.skus, { id: Date.now(), value: "" }] }));
+    setForm(f => ({ ...f, skus: [...f.skus, { id: Date.now(), value: "", countries: [] }] }));
 
   const removeSku = (id) =>
     setForm(f => ({ ...f, skus: f.skus.filter(s => s.id !== id) }));
 
-  const updateSku = (id, value) =>
-    setForm(f => ({ ...f, skus: f.skus.map(s => s.id === id ? { ...s, value } : s) }));
+  const updateSku = (id, field, value) =>
+    setForm(f => ({ ...f, skus: f.skus.map(s => s.id === id ? { ...s, [field]: value } : s) }));
+
+  const toggleSkuCountry = (id, code) =>
+    setForm(f => ({
+      ...f,
+      skus: f.skus.map(s => {
+        if (s.id !== id) return s;
+        const already = s.countries.includes(code);
+        return { ...s, countries: already ? s.countries.filter(c => c !== code) : [...s.countries, code] };
+      })
+    }));
+
+  const updateSku_value = (id, value) => updateSku(id, "value", value);
+
+  // ─── CountryDropdown ────────────────────────────────────────────────────────
+  function CountryDropdown({ skuId, selected }) {
+    const isOpen = openDropdown === skuId;
+    const allSelected = selected.length === COUNTRIES.length;
+
+    const toggleAll = () => {
+      const codes = allSelected ? [] : COUNTRIES.map(c => c.code);
+      setForm(f => ({
+        ...f,
+        skus: f.skus.map(s => s.id === skuId ? { ...s, countries: codes } : s)
+      }));
+    };
+
+    return (
+      <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => setOpenDropdown(isOpen ? null : skuId)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "0 10px", height: 36, whiteSpace: "nowrap",
+            fontSize: 12, minWidth: 120,
+            background: selected.length > 0 ? "var(--color-background-info)" : undefined,
+            color: selected.length > 0 ? "var(--color-text-info)" : undefined,
+            borderColor: selected.length > 0 ? "var(--color-border-info)" : undefined,
+          }}
+          title="Selecionar países"
+        >
+          <i className="ti ti-flag" aria-hidden="true" style={{ fontSize: 14 }}></i>
+          {selected.length === 0
+            ? "País"
+            : selected.length === COUNTRIES.length
+              ? "Todos os países"
+              : `${selected.length} país${selected.length > 1 ? "es" : ""}`}
+          <i className={`ti ti-chevron-${isOpen ? "up" : "down"}`} aria-hidden="true" style={{ fontSize: 12, marginLeft: "auto" }}></i>
+        </button>
+
+        {isOpen && (
+          <div style={{
+            position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 100,
+            background: "var(--color-background-primary)",
+            border: "0.5px solid var(--color-border-tertiary)",
+            borderRadius: "var(--border-radius-lg)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            minWidth: 220, maxHeight: 280, overflowY: "auto",
+            padding: "6px 0"
+          }}>
+            {/* Select all */}
+            <div
+              onClick={toggleAll}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                borderBottom: "0.5px solid var(--color-border-tertiary)",
+                marginBottom: 4,
+                color: allSelected ? "var(--color-text-info)" : "var(--color-text-secondary)"
+              }}
+            >
+              <div style={{
+                width: 16, height: 16, borderRadius: 4,
+                border: "1.5px solid", flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                borderColor: allSelected ? "var(--color-border-info)" : "var(--color-border-tertiary)",
+                background: allSelected ? "var(--color-background-info)" : "transparent"
+              }}>
+                {allSelected && <i className="ti ti-check" style={{ fontSize: 10, color: "var(--color-text-info)" }} aria-hidden="true"></i>}
+              </div>
+              Todos os países
+            </div>
+
+            {COUNTRIES.map(c => {
+              const checked = selected.includes(c.code);
+              return (
+                <div
+                  key={c.code}
+                  onClick={() => toggleSkuCountry(skuId, c.code)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "6px 14px", cursor: "pointer", fontSize: 13,
+                    background: checked ? "var(--color-background-info)" : "transparent",
+                    transition: "background 0.1s"
+                  }}
+                >
+                  <div style={{
+                    width: 16, height: 16, borderRadius: 4,
+                    border: "1.5px solid", flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    borderColor: checked ? "var(--color-border-info)" : "var(--color-border-tertiary)",
+                    background: checked ? "var(--color-background-info)" : "transparent"
+                  }}>
+                    {checked && <i className="ti ti-check" style={{ fontSize: 10, color: "var(--color-text-info)" }} aria-hidden="true"></i>}
+                  </div>
+                  {c.label}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   const canNext = () => {
     if (step === 0) return form.projectName.trim().length > 0;
@@ -111,7 +242,8 @@ function ProjectDataCollector() {
           formatMonthYear(project.salesStartDate, i),
           project.salesMonths[i] ? Number(project.salesMonths[i]) : 0,
           project.om1Target ? Number(project.om1Target) / 100 : "",
-          new Date().toLocaleDateString("pt-BR")
+          new Date().toLocaleDateString("pt-BR"),
+          (sku.countries || []).join(", ")
         ]);
       }
     });
@@ -167,7 +299,8 @@ function ProjectDataCollector() {
       "Mês Referência",
       "Venda Planejada",
       "Venda Real",
-      "OM1% Target"
+      "OM1% Target",
+      "País"
     ]);
 
     allProjects.forEach(p => {
@@ -192,7 +325,8 @@ function ProjectDataCollector() {
               salesMonth,
               salesVol,
               "", // Venda Real - pronta para input manual
-              p.om1Target ? Number(p.om1Target) / 100 : "" // Salva como decimal puro para formatação nativa
+              p.om1Target ? Number(p.om1Target) / 100 : "", // Salva como decimal puro para formatação nativa
+              (sku.countries || []).join(", ")
             ]);
           }
         }
@@ -200,6 +334,22 @@ function ProjectDataCollector() {
     });
 
     const ws = activeXLSX.utils.aoa_to_sheet(rows);
+
+    // Força tipo texto nas colunas de Mês Referência (índices 2 e 5)
+    // Sem isso, o Excel pode fazer auto-parse de "03/2026" como uma data
+    if (ws['!ref']) {
+      const fullRange = activeXLSX.utils.decode_range(ws['!ref']);
+      const mesColumns = [2, 5];
+      for (let row = fullRange.s.r + 1; row <= fullRange.e.r; row++) {
+        mesColumns.forEach(col => {
+          const cellRef = activeXLSX.utils.encode_cell({ r: row, c: col });
+          if (ws[cellRef]) {
+            ws[cellRef].t = 's'; // tipo string
+            ws[cellRef].z = '@'; // formato "Texto" — bloqueia auto-parse de data no Excel
+          }
+        });
+      }
+    }
 
     // Formata dinamicamente as células numéricas e as máscaras de porcentagem da coluna I (índice 8)
     if (ws['!ref']) {
@@ -329,7 +479,9 @@ function ProjectDataCollector() {
   }
 
   return (
-    <div style={{ padding: "1.5rem 1rem", maxWidth: 640, margin: "0 auto" }}>
+    <div style={{ padding: "1.5rem 1rem", maxWidth: 640, margin: "0 auto" }}
+      onClick={() => setOpenDropdown(null)}
+    >
       <h2 style={{ margin: "0 0 0.25rem", fontSize: 18, fontWeight: 500 }}>
         Cadastro de Projeto — Dashboard
       </h2>
@@ -408,11 +560,12 @@ function ProjectDataCollector() {
                   <input
                     type="text"
                     value={sku.value}
-                    onChange={e => updateSku(sku.id, e.target.value)}
+                    onChange={e => updateSku_value(sku.id, e.target.value)}
                     placeholder={`SKU ${i + 1} — ex: 0601.9N4.3E1`}
                     style={{ flex: 1 }}
                     autoFocus={i === form.skus.length - 1 && i > 0}
                   />
+                  <CountryDropdown skuId={sku.id} selected={sku.countries || []} />
                   {form.skus.length > 1 && (
                     <button
                       type="button"
@@ -550,7 +703,13 @@ function ProjectDataCollector() {
             <h3 style={{ margin: "0 0 1rem", fontSize: 15, fontWeight: 500 }}>Revisão dos dados</h3>
 
             <ReviewRow label="Projeto" value={form.projectName} />
-            <ReviewRow label="SKUs" value={form.skus.filter(s => s.value).map(s => s.value).join(", ")} />
+            <ReviewRow label="SKUs" value={
+              form.skus.filter(s => s.value).map(s =>
+                s.countries && s.countries.length > 0
+                  ? `${s.value} (${s.countries.join(", ")})`
+                  : s.value
+              ).join(", ")
+            } />
             <ReviewRow label="Início produção" value={form.productionStartDate || "—"} />
             <div style={{ marginBottom: 12 }}>
               <span style={reviewLabelStyle}>Plano de produção</span>
